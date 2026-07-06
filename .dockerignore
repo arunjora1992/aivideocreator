@@ -1,0 +1,6 @@
+**/node_modules
+remotion/out
+remotion/public/voiceover.default
+.git
+.env
+**/*.log

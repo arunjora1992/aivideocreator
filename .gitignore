@@ -1,0 +1,7 @@
+node_modules/
+remotion/node_modules/
+remotion/out/
+remotion/public/voiceover.default/
+.env
+*.log
+.DS_Store

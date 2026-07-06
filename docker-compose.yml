@@ -1,0 +1,30 @@
+services:
+  aivideocreator:
+    build: .
+    image: aivideocreator:latest
+    container_name: aivideocreator
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # GUI (open this in your browser)
+      - "3000:3000" # Remotion Studio (embedded in the Render/Studio tab)
+      - "7681:7681" # Claude CLI web terminal (embedded in the Claude tab)
+    environment:
+      # Voiceover: ElevenLabs (cloud) is used when a key is present; otherwise
+      # pick the offline "piper" or "espeak" backend in the GUI.
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Only needed if you want to authenticate the Claude CLI with an API key
+      # instead of interactive /login.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      COMPOSITION_ID: ${COMPOSITION_ID:-identity-integration}
+    volumes:
+      # Persistent volume for rendered videos (survives container restarts).
+      - output:/app/remotion/out
+      # Persist the Claude CLI login so you don't sign in every restart.
+      - claude_config:/root/.claude
+      # Persist voiceover clips you regenerate from the GUI.
+      - voiceover:/app/remotion/public/voiceover
+
+volumes:
+  output:
+  claude_config:
+  voiceover:
