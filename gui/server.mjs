@@ -81,12 +81,23 @@ const server = createServer(async (req, res) => {
     }
 
     if (p === "/api/config") {
+      // Prefer offline neural piper when its voice models are installed; fall
+      // back to the cloud (if a key is set) and finally to robotic espeak.
+      const piperVoices = (await listVoices("piper")).voices || [];
+      const hasElevenKey = Boolean(process.env.ELEVENLABS_API_KEY);
+      const defaultBackend =
+        piperVoices.length > 0
+          ? "piper"
+          : hasElevenKey
+            ? "elevenlabs"
+            : "espeak";
       return json(res, 200, {
         compositionId: COMPOSITION_ID,
         studioPort: STUDIO_PORT,
         ttydPort: TTYD_PORT,
-        hasElevenKey: Boolean(process.env.ELEVENLABS_API_KEY),
+        hasElevenKey,
         backends: ["elevenlabs", "piper", "espeak"],
+        defaultBackend,
       });
     }
 

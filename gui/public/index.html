@@ -471,7 +471,7 @@
           btn.onclick = () => { seg.querySelectorAll("button").forEach((x) => x.classList.remove("active")); btn.classList.add("active"); loadVoices(); };
           seg.appendChild(btn);
         });
-        const def = cfg.hasElevenKey ? "elevenlabs" : "espeak";
+        const def = cfg.defaultBackend || (cfg.hasElevenKey ? "elevenlabs" : "piper");
         (seg.querySelector(`[data-b="${def}"]`) || seg.firstChild).classList.add("active");
 
         await loadScenes();
