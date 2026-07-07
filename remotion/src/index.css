@@ -1,1 +1,4 @@
-@import "tailwindcss";
+/* Global styles for compositions. Scenes use inline styles; add globals here. */
+* {
+  box-sizing: border-box;
+}

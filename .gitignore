@@ -1,6 +1,7 @@
 node_modules/
 remotion/node_modules/
 remotion/out/
+remotion/build/
 remotion/public/voiceover.default/
 .env
 *.log

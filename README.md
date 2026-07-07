@@ -15,17 +15,19 @@ One image, one `docker compose up`, four things running under `supervisord`:
 | 3000 | **Remotion Studio** — live preview + render page | *Render / Studio* |
 | 7681 | **Claude CLI** in a web terminal | *Claude CLI* |
 
-The GUI tabs:
+The GUI tabs (modern dark/light UI — toggle with the ◐ button):
 
-1. **Render / Studio** — the Remotion Studio render/preview page, embedded.
-2. **Claude CLI** — a web terminal running the `claude` CLI. On first use run
-   `/login` to **sign in with your Claude account** (the login is persisted in a
-   Docker volume, so it survives restarts).
-3. **Voiceover** — choose a TTS **backend** and **voice**, then regenerate the
-   narration for every scene.
-4. **Render MP4** — render the composition to an MP4 with a live progress bar;
-   the result is written to a **persistent volume** and playable/downloadable
-   right in the tab.
+1. **Studio** — the Remotion Studio render/preview page, embedded.
+2. **Script** — edit each scene's title / body / narration, add/remove/reorder
+   scenes, and **Save** — no code editing needed to build a new video.
+3. **Voiceover** — choose a TTS **backend** and **voice**, **preview** the voice,
+   then generate narration for every scene.
+4. **Render** — render to an MP4 with a live progress bar; results land in a
+   **persistent volume** and appear in an outputs gallery you can play and
+   **download** right there.
+5. **Claude CLI** — a web terminal running the `claude` CLI. On first use run
+   `/login` to **sign in with your Claude account** (persisted in a Docker
+   volume, so it survives restarts). Ask Claude to write or rewrite your scenes.
 
 ## Quick start
 
@@ -61,16 +63,17 @@ Declared in `docker-compose.yml`:
 | `claude_config` | `/root/.claude` | Claude CLI login |
 | `voiceover` | `/app/remotion/public/voiceover` | Regenerated voiceover clips (seeded from image defaults on first run) |
 
-## The composition
+## The project
 
-`COMPOSITION_ID` (default `identity-integration`) is a ~107 s, 1920×1080 narrated
-explainer on **Keycloak + Google SSO + FreeIPA** integration, built as custom
-diagram scenes in `remotion/src/integration/`. Edit `scenes.ts` (narration) or the
-scene components, regenerate voiceover, and re-render — the composition auto-sizes
-each scene to its audio.
+`COMPOSITION_ID` (default `starter`) is a neutral 1920×1080 starter video whose
+content lives in **`remotion/src/starter/scenes.json`** — a plain list of scenes
+(`id`, `title`, `body`, `narration`). The GUI's **Script** tab reads and writes
+this file, so building a new video is: edit the script → pick a voice → generate
+voiceover → render. Each scene auto-sizes to the length of its narration audio.
 
-Use the **Claude CLI** tab to have Claude edit the scenes/components for you, then
-regenerate and re-render from the GUI.
+To go further, edit `remotion/src/starter/Scene.tsx` (or add new components) — or
+just ask Claude in the **Claude CLI** tab to build richer scenes, then regenerate
+and re-render from the GUI.
 
 ## Layout
 
@@ -85,8 +88,10 @@ regenerate and re-render from the GUI.
 │   ├── lib/tts.mjs         # elevenlabs / piper / espeak backends
 │   └── public/index.html   # the tabbed page
 └── remotion/               # the Remotion project (the video itself)
-    ├── src/integration/    # the diagram-explainer composition
-    └── generate-voiceover.ts
+    └── src/starter/         # the starter composition
+        ├── scenes.json      # ← the editable project content (Script tab writes this)
+        ├── StarterVideo.tsx
+        └── Scene.tsx        # per-scene renderer — customize me
 ```
 
 ## Notes

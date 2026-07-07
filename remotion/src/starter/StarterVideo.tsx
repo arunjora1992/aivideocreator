@@ -7,16 +7,10 @@ import {
   staticFile,
 } from "remotion";
 import { z } from "zod";
-import { Background } from "./components/Background";
-import {
-  estimateNarrationSeconds,
-  tryGetAudioDuration,
-} from "./lib/audioDuration";
-import { COMPOSITION_ID, SCENES } from "./scenes";
-import { SCENE_COMPONENTS } from "./scenes/registry";
-import { VIDEO } from "./theme";
+import { tryGetAudioDuration, estimateNarrationSeconds } from "./audioDuration";
+import { COMPOSITION_ID, SCENES, VIDEO } from "./scenes";
+import { Scene } from "./Scene";
 
-// Extra breathing room after each narration line before the next scene.
 const TAIL_SECONDS = 0.5;
 
 const sceneTimingSchema = z.object({
@@ -24,20 +18,19 @@ const sceneTimingSchema = z.object({
   hasAudio: z.boolean(),
 });
 
-export const integrationSchema = z.object({
+export const starterSchema = z.object({
   sceneTimings: z.array(sceneTimingSchema),
 });
 
-export type IntegrationProps = z.infer<typeof integrationSchema>;
+export type StarterProps = z.infer<typeof starterSchema>;
 
 export const audioSrc = (sceneId: string) =>
   `voiceover/${COMPOSITION_ID}/${sceneId}.mp3`;
 
-export const calculateIntegrationMetadata: CalculateMetadataFunction<
-  IntegrationProps
+export const calculateStarterMetadata: CalculateMetadataFunction<
+  StarterProps
 > = async () => {
   const { fps } = VIDEO;
-
   const sceneTimings = await Promise.all(
     SCENES.map(async (scene) => {
       const audioSeconds = await tryGetAudioDuration(
@@ -47,17 +40,12 @@ export const calculateIntegrationMetadata: CalculateMetadataFunction<
       const seconds =
         (audioSeconds ?? estimateNarrationSeconds(scene.narration)) +
         TAIL_SECONDS;
-      return {
-        frames: Math.ceil(seconds * fps),
-        hasAudio,
-      };
+      return { frames: Math.ceil(seconds * fps), hasAudio };
     }),
   );
 
-  const durationInFrames = sceneTimings.reduce((sum, s) => sum + s.frames, 0);
-
   return {
-    durationInFrames,
+    durationInFrames: sceneTimings.reduce((s, t) => s + t.frames, 0),
     fps,
     width: VIDEO.width,
     height: VIDEO.height,
@@ -65,26 +53,19 @@ export const calculateIntegrationMetadata: CalculateMetadataFunction<
   };
 };
 
-export const IntegrationVideo: React.FC<IntegrationProps> = ({
-  sceneTimings,
-}) => {
-  // Fallback so the component still renders in Studio before metadata resolves.
+export const StarterVideo: React.FC<StarterProps> = ({ sceneTimings }) => {
   const timings =
     sceneTimings.length === SCENES.length
       ? sceneTimings
       : SCENES.map(() => ({ frames: 3 * VIDEO.fps, hasAudio: false }));
 
   let cursor = 0;
-
   return (
     <AbsoluteFill>
-      <Background />
       {SCENES.map((scene, i) => {
         const { frames, hasAudio } = timings[i];
         const from = cursor;
         cursor += frames;
-        const SceneComponent = SCENE_COMPONENTS[scene.kind];
-
         return (
           <Sequence
             key={scene.id}
@@ -93,10 +74,7 @@ export const IntegrationVideo: React.FC<IntegrationProps> = ({
             name={scene.id}
           >
             {hasAudio ? <Audio src={staticFile(audioSrc(scene.id))} /> : null}
-            <SceneComponent
-              durationInFrames={frames}
-              caption={scene.narration}
-            />
+            <Scene scene={scene} durationInFrames={frames} />
           </Sequence>
         );
       })}

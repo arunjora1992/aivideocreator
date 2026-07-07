@@ -1,50 +1,51 @@
 // AI Video Creator — GUI server (zero external deps, Node built-ins only).
 //
 // Tabs served by the single-page UI:
-//   1. Studio   — iframe to Remotion Studio (render/preview page)      :3000
-//   2. Claude   — iframe to a ttyd web terminal running the claude CLI :7681
-//   3. Voiceover— pick backend + voice, (re)generate narration MP3s
-//   4. Render   — kick off an MP4 render, watch live progress, download
+//   1. Studio    — iframe to Remotion Studio (render/preview page)      :3000
+//   2. Claude    — iframe to a ttyd web terminal running the claude CLI :7681
+//   3. Script    — edit each scene (title / body / narration) + generate voiceover
+//   4. Render    — render the MP4, watch live progress, play + download outputs
 import { createServer } from "node:http";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { listVoices, synthesize } from "./lib/tts.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const REMOTION_DIR = path.join(ROOT, "remotion");
-const COMPOSITION_ID = process.env.COMPOSITION_ID || "identity-integration";
-const VOICEOVER_DIR = path.join(
-  REMOTION_DIR,
-  "public",
-  "voiceover",
-  COMPOSITION_ID,
-);
+const COMPOSITION_ID = process.env.COMPOSITION_ID || "starter";
+const SCENES_JSON = path.join(REMOTION_DIR, "src", "starter", "scenes.json");
+const VOICEOVER_DIR = path.join(REMOTION_DIR, "public", "voiceover", COMPOSITION_ID);
 const OUT_DIR = path.join(REMOTION_DIR, "out");
 
 const PORT = Number(process.env.GUI_PORT || 8080);
-const STUDIO_PORT = Number(process.env.STUDIO_PORT || 3000);
-const TTYD_PORT = Number(process.env.TTYD_PORT || 7681);
+// Ports the browser uses to reach Studio / the terminal. These are the HOST
+// ports (published by docker compose), which may differ from the container's
+// internal ports — the GUI advertises these so the embedded iframes resolve.
+const STUDIO_PORT = Number(
+  process.env.PUBLIC_STUDIO_PORT || process.env.STUDIO_PORT || 3000,
+);
+const TTYD_PORT = Number(
+  process.env.PUBLIC_TTYD_PORT || process.env.TTYD_PORT || 7681,
+);
 
 // ---- helpers ---------------------------------------------------------------
 
-const sseHead = (res) => {
+const sseHead = (res) =>
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
-};
 const sse = (res, obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
-
 const json = (res, code, obj) => {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
 };
-
 const readBody = (req) =>
   new Promise((resolve) => {
     let b = "";
@@ -58,30 +59,12 @@ const readBody = (req) =>
     });
   });
 
-const getScenes = () =>
-  new Promise((resolve, reject) => {
-    const p = spawn("npx", ["tsx", "scripts/dump-scenes.ts"], {
-      cwd: REMOTION_DIR,
-    });
-    let out = "",
-      err = "";
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (err += d));
-    p.on("close", (code) => {
-      if (code !== 0) return reject(new Error(err || `dump-scenes exited ${code}`));
-      try {
-        resolve(JSON.parse(out.trim().split("\n").pop()));
-      } catch (e) {
-        reject(new Error(`bad scenes JSON: ${e.message}`));
-      }
-    });
-  });
+const readScenes = async () => JSON.parse(await readFile(SCENES_JSON, "utf8"));
 
-const CONTENT_TYPES = {
+const CT = {
   ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
   ".mp4": "video/mp4",
+  ".mp3": "audio/mpeg",
   ".json": "application/json",
 };
 
@@ -93,9 +76,8 @@ const server = createServer(async (req, res) => {
 
   try {
     if (p === "/" || p === "/index.html") {
-      const html = await readFile(path.join(__dirname, "public", "index.html"));
       res.writeHead(200, { "Content-Type": "text/html" });
-      return res.end(html);
+      return res.end(await readFile(path.join(__dirname, "public", "index.html")));
     }
 
     if (p === "/api/config") {
@@ -113,12 +95,24 @@ const server = createServer(async (req, res) => {
       return json(res, 200, await listVoices(backend));
     }
 
-    if (p === "/api/scenes") {
-      try {
-        return json(res, 200, { scenes: await getScenes() });
-      } catch (e) {
-        return json(res, 500, { error: e.message });
-      }
+    // ---- scene script: read + save ----
+    if (p === "/api/scenes" && req.method === "GET") {
+      const data = await readScenes();
+      return json(res, 200, { compositionId: data.compositionId, scenes: data.scenes });
+    }
+    if (p === "/api/scenes" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!Array.isArray(body.scenes) || body.scenes.length === 0)
+        return json(res, 400, { error: "scenes must be a non-empty array" });
+      const data = await readScenes();
+      data.scenes = body.scenes.map((s, i) => ({
+        id: String(s.id || `${String(i + 1).padStart(2, "0")}-scene`),
+        title: String(s.title || ""),
+        body: String(s.body || ""),
+        narration: String(s.narration || ""),
+      }));
+      await writeFile(SCENES_JSON, JSON.stringify(data, null, 2) + "\n");
+      return json(res, 200, { ok: true, count: data.scenes.length });
     }
 
     if (p === "/api/output") {
@@ -137,11 +131,30 @@ const server = createServer(async (req, res) => {
     if (p.startsWith("/output/")) {
       const file = path.join(OUT_DIR, path.basename(p));
       if (!existsSync(file)) return json(res, 404, { error: "not found" });
-      const data = await readFile(file);
-      res.writeHead(200, {
-        "Content-Type": CONTENT_TYPES[path.extname(file)] || "application/octet-stream",
-      });
-      return res.end(data);
+      const headers = { "Content-Type": CT[path.extname(file)] || "application/octet-stream" };
+      if (url.searchParams.get("download"))
+        headers["Content-Disposition"] = `attachment; filename="${path.basename(file)}"`;
+      res.writeHead(200, headers);
+      return res.end(await readFile(file));
+    }
+
+    // ---- voice preview (short sample) ----
+    if (p === "/api/preview" && req.method === "POST") {
+      const { backend = "elevenlabs", voice } = await readBody(req);
+      if (!voice) return json(res, 400, { error: "no voice" });
+      const tmp = path.join(os.tmpdir(), `preview-${Date.now()}.mp3`);
+      try {
+        await synthesize({
+          backend,
+          voice,
+          text: "Hi! This is a preview of the selected voice for your video.",
+          outMp3: tmp,
+        });
+        res.writeHead(200, { "Content-Type": "audio/mpeg" });
+        return res.end(await readFile(tmp));
+      } catch (e) {
+        return json(res, 500, { error: e.message });
+      }
     }
 
     // ---- voiceover generation (SSE) ----
@@ -152,13 +165,7 @@ const server = createServer(async (req, res) => {
         sse(res, { type: "error", error: "no voice selected" });
         return res.end();
       }
-      let scenes;
-      try {
-        scenes = await getScenes();
-      } catch (e) {
-        sse(res, { type: "error", error: `cannot load scenes: ${e.message}` });
-        return res.end();
-      }
+      const { scenes } = await readScenes();
       for (let i = 0; i < scenes.length; i++) {
         const s = scenes[i];
         sse(res, { type: "progress", i, total: scenes.length, id: s.id, stage: "start" });
@@ -189,22 +196,25 @@ const server = createServer(async (req, res) => {
         { cwd: REMOTION_DIR },
       );
       const onData = (buf) => {
-        const text = buf.toString();
-        for (const line of text.split(/\r?\n/)) {
+        for (const line of buf.toString().split(/\r?\n/)) {
           const m = line.match(/(\d+)\s*\/\s*(\d+)/);
           if (m) {
             const done = Number(m[1]),
               total = Number(m[2]);
             if (total > 0)
-              sse(res, { type: "progress", pct: Math.round((done / total) * 100), done, total });
+              sse(res, {
+                type: "progress",
+                pct: Math.round((done / total) * 100),
+                done,
+                total,
+              });
           }
         }
       };
       proc.stdout.on("data", onData);
       proc.stderr.on("data", onData);
       proc.on("close", (code) => {
-        if (code === 0)
-          sse(res, { type: "done", url: `/output/${COMPOSITION_ID}.mp4` });
+        if (code === 0) sse(res, { type: "done", url: `/output/${COMPOSITION_ID}.mp4` });
         else sse(res, { type: "error", error: `render exited ${code}` });
         res.end();
       });

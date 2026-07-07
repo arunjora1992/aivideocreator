@@ -5,17 +5,21 @@ services:
     container_name: aivideocreator
     restart: unless-stopped
     ports:
-      - "8080:8080" # GUI (open this in your browser)
-      - "3000:3000" # Remotion Studio (embedded in the Render/Studio tab)
-      - "7681:7681" # Claude CLI web terminal (embedded in the Claude tab)
+      - "${GUI_HOST_PORT:-8090}:8080" # GUI (open this in your browser)
+      - "${STUDIO_HOST_PORT:-3100}:3000" # Remotion Studio (embedded in the Studio tab)
+      - "${TTYD_HOST_PORT:-7681}:7681" # Claude CLI web terminal (embedded in the Claude tab)
     environment:
+      # Host-facing ports the GUI advertises so the embedded iframes resolve
+      # correctly (must match the left-hand side of the port mappings above).
+      PUBLIC_STUDIO_PORT: ${STUDIO_HOST_PORT:-3100}
+      PUBLIC_TTYD_PORT: ${TTYD_HOST_PORT:-7681}
       # Voiceover: ElevenLabs (cloud) is used when a key is present; otherwise
       # pick the offline "piper" or "espeak" backend in the GUI.
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       # Only needed if you want to authenticate the Claude CLI with an API key
       # instead of interactive /login.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      COMPOSITION_ID: ${COMPOSITION_ID:-identity-integration}
+      COMPOSITION_ID: ${COMPOSITION_ID:-starter}
     volumes:
       # Persistent volume for rendered videos (survives container restarts).
       - output:/app/remotion/out

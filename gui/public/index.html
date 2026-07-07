@@ -1,149 +1,313 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AI Video Creator</title>
     <style>
       :root {
-        --bg: #0b1220;
-        --panel: #141e38;
-        --border: #26365e;
-        --text: #eaf1ff;
-        --muted: #93a6c9;
-        --accent: #38a9e4;
-        --ok: #34d399;
-        --err: #e0483c;
+        --bg: #f6f8fc;
+        --surface: #ffffff;
+        --surface-2: #eef2f9;
+        --border: #dbe2ee;
+        --text: #111826;
+        --muted: #5a6a86;
+        --accent: #2f6bed;
+        --accent-2: #0aa5c9;
+        --ok: #0e9f6e;
+        --warn: #c07d12;
+        --err: #d23b2e;
+        --shadow: 0 10px 30px rgba(20, 40, 80, 0.1);
+        --radius: 14px;
       }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --surface: #151b26;
+          --surface-2: #1b2230;
+          --border: #28303f;
+          --text: #e6ebf4;
+          --muted: #8a97ad;
+          --accent: #5b8cff;
+          --accent-2: #22d3ee;
+          --ok: #34d399;
+          --warn: #f5b445;
+          --err: #f2555a;
+          --shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #0d1117; --surface: #151b26; --surface-2: #1b2230; --border: #28303f;
+        --text: #e6ebf4; --muted: #8a97ad; --accent: #5b8cff; --accent-2: #22d3ee;
+        --ok: #34d399; --warn: #f5b445; --err: #f2555a; --shadow: 0 12px 34px rgba(0,0,0,0.45);
+      }
+      :root[data-theme="light"] {
+        --bg: #f6f8fc; --surface: #ffffff; --surface-2: #eef2f9; --border: #dbe2ee;
+        --text: #111826; --muted: #5a6a86; --accent: #2f6bed; --accent-2: #0aa5c9;
+        --ok: #0e9f6e; --warn: #c07d12; --err: #d23b2e; --shadow: 0 10px 30px rgba(20,40,80,0.1);
+      }
+
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         background: var(--bg);
         color: var(--text);
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: 232px 1fr;
+        grid-template-rows: 56px 1fr;
+        grid-template-areas: "rail top" "rail main";
       }
+      .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+      .eyebrow {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+      }
+
+      /* ---- top bar ---- */
       header {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 12px 20px;
-        border-bottom: 1px solid var(--border);
-        background: var(--panel);
+        grid-area: top; display: flex; align-items: center; gap: 12px;
+        padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface);
       }
-      header h1 { font-size: 18px; margin: 0; font-weight: 800; }
-      header .sub { color: var(--muted); font-size: 13px; }
-      nav { display: flex; gap: 4px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
-      nav button {
-        background: transparent; border: none; color: var(--muted);
-        padding: 12px 18px; cursor: pointer; font-size: 14px; font-weight: 600;
-        border-bottom: 2px solid transparent;
+      header .grow { flex: 1; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
+        padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border);
+        background: var(--surface-2); color: var(--muted);
       }
-      nav button.active { color: var(--text); border-bottom-color: var(--accent); }
-      main { flex: 1; position: relative; overflow: hidden; }
-      .tab { position: absolute; inset: 0; display: none; overflow: auto; }
-      .tab.active { display: block; }
+      .pill b { color: var(--text); font-weight: 600; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+      .dot.on { background: var(--ok); }
+      .icon-btn {
+        display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px;
+        border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+        cursor: pointer;
+      }
+      .icon-btn:hover { border-color: var(--accent); }
+
+      /* ---- nav rail ---- */
+      .rail {
+        grid-area: rail; background: var(--surface); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; padding: 16px 12px; gap: 4px;
+      }
+      .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; }
+      .brand .logo {
+        width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; font-size: 16px;
+      }
+      .brand .name { font-weight: 800; letter-spacing: -0.01em; font-size: 15px; }
+      .rail nav { display: flex; flex-direction: column; gap: 3px; }
+      .rail button {
+        display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+        padding: 10px 12px; border: none; border-radius: 10px; background: transparent;
+        color: var(--muted); font-size: 14px; font-weight: 550; cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .rail button svg { width: 18px; height: 18px; flex: none; }
+      .rail button:hover { background: var(--surface-2); color: var(--text); }
+      .rail button.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+      .rail button.active svg { color: var(--accent); }
+      .rail .foot { margin-top: auto; padding: 10px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+
+      /* ---- main ---- */
+      main { grid-area: main; position: relative; overflow: hidden; }
+      .view { position: absolute; inset: 0; display: none; }
+      .view.active { display: block; }
+      .view.scroll { overflow: auto; }
       iframe { width: 100%; height: 100%; border: none; background: #fff; }
-      .pad { padding: 24px; max-width: 820px; }
-      label { display: block; font-size: 13px; color: var(--muted); margin: 16px 0 6px; }
-      select, button.action {
-        font-size: 15px; padding: 10px 14px; border-radius: 10px;
-        border: 1px solid var(--border); background: var(--bg); color: var(--text);
+
+      .wrap { max-width: 900px; margin: 0 auto; padding: 32px 28px 60px; }
+      h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; margin: 6px 0 4px; text-wrap: balance; }
+      .lead { color: var(--muted); font-size: 14.5px; line-height: 1.6; margin: 0 0 22px; max-width: 62ch; }
+
+      .card {
+        background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+        padding: 20px; box-shadow: var(--shadow); margin-bottom: 16px;
       }
-      select { min-width: 320px; }
-      button.action {
-        background: var(--accent); border-color: var(--accent); color: #06101f;
-        font-weight: 700; cursor: pointer; margin-top: 20px;
+      .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 7px; font-weight: 600; }
+      select, input[type="text"], textarea {
+        width: 100%; font: inherit; font-size: 14px; color: var(--text);
+        background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
       }
-      button.action:disabled { opacity: 0.5; cursor: default; }
+      select:focus, input:focus, textarea:focus, button:focus-visible {
+        outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+      }
+      textarea { resize: vertical; min-height: 62px; line-height: 1.5; }
+
+      .btn {
+        display: inline-flex; align-items: center; gap: 8px; font: inherit; font-weight: 650;
+        font-size: 14px; padding: 11px 18px; border-radius: 11px; cursor: pointer; border: 1px solid transparent;
+        transition: transform 0.05s, filter 0.15s, background 0.15s;
+      }
+      .btn:active { transform: translateY(1px); }
+      .btn:disabled { opacity: 0.55; cursor: default; }
+      .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+      .btn.primary:hover:not(:disabled) { filter: brightness(1.07); }
+      .btn.ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+      .btn.ghost:hover:not(:disabled) { border-color: var(--accent); }
+
+      /* segmented control */
+      .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px; padding: 3px; gap: 3px; }
+      .seg button {
+        border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
+        padding: 7px 14px; border-radius: 8px; cursor: pointer;
+      }
+      .seg button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+
+      /* progress */
+      .bar { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .bar > div { height: 100%; width: 0; border-radius: 8px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.25s; }
       .log {
-        margin-top: 18px; background: #060b16; border: 1px solid var(--border);
-        border-radius: 10px; padding: 14px; font-family: ui-monospace, monospace;
-        font-size: 13px; white-space: pre-wrap; max-height: 300px; overflow: auto;
+        margin-top: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px 14px; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px;
+        white-space: pre-wrap; max-height: 240px; overflow: auto; color: var(--muted);
       }
-      .bar { height: 12px; background: #060b16; border-radius: 8px; overflow: hidden; margin-top: 18px; border: 1px solid var(--border); }
-      .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
-      .hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
-      video { width: 100%; margin-top: 18px; border-radius: 10px; border: 1px solid var(--border); }
-      a.dl { color: var(--accent); }
-      code { background: #060b16; padding: 2px 6px; border-radius: 5px; }
+
+      /* scene cards */
+      .scene { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; background: var(--surface); }
+      .scene .head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+      .scene .num { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--accent); }
+      .scene .sp { flex: 1; }
+      .scene .mini { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+      .scene .mini:hover { color: var(--err); border-color: var(--err); }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+      /* outputs */
+      .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+      .vcard { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
+      .vcard video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; }
+      .vcard .meta { padding: 11px 13px; display: flex; align-items: center; gap: 10px; }
+      .vcard .meta .fn { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .vcard .meta .sz { color: var(--muted); font-size: 12px; margin-left: auto; }
+      a.dl { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+      a.dl:hover { text-decoration: underline; }
+
+      /* toasts */
+      #toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+      .toast { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 11px 15px; box-shadow: var(--shadow); font-size: 13.5px; max-width: 340px; }
+      .toast.ok { border-left-color: var(--ok); }
+      .toast.err { border-left-color: var(--err); }
+
+      .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+      code { background: var(--surface-2); padding: 2px 6px; border-radius: 5px; font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
     </style>
   </head>
   <body>
+    <div class="rail">
+      <div class="brand">
+        <div class="logo">▶</div>
+        <div class="name">AI Video Creator</div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="foot">Remotion · Voiceover · Claude<br />running in one container</div>
+    </div>
+
     <header>
-      <h1>🎬 AI Video Creator</h1>
-      <span class="sub" id="sub">Remotion · Claude · Voiceover</span>
+      <span class="eyebrow" id="crumb">Studio</span>
+      <span class="grow"></span>
+      <span class="pill"><span class="dot on"></span>composition&nbsp;<b id="comp">—</b></span>
+      <span class="pill" id="backend-pill"><span class="dot"></span>voice&nbsp;<b id="be">—</b></span>
+      <button class="icon-btn" id="theme" title="Toggle theme">◐</button>
     </header>
-    <nav>
-      <button data-tab="studio" class="active">Render / Studio</button>
-      <button data-tab="claude">Claude CLI</button>
-      <button data-tab="voice">Voiceover</button>
-      <button data-tab="render">Render MP4</button>
-    </nav>
+
     <main>
-      <section class="tab active" id="tab-studio">
-        <iframe id="studio-frame" title="Remotion Studio"></iframe>
-      </section>
+      <section class="view active" id="v-studio"><iframe id="studio-frame" title="Remotion Studio"></iframe></section>
+      <section class="view" id="v-claude"><iframe id="claude-frame" title="Claude CLI"></iframe></section>
 
-      <section class="tab" id="tab-claude">
-        <iframe id="claude-frame" title="Claude CLI"></iframe>
-      </section>
-
-      <section class="tab" id="tab-voice">
-        <div class="pad">
-          <h2>Generate voiceover</h2>
-          <p class="hint">
-            Pick a TTS backend and voice, then regenerate the narration for every
-            scene. <b>ElevenLabs</b> is cloud (needs an API key). <b>Piper</b> and
-            <b>espeak</b> are offline models bundled in the image — no key needed.
-          </p>
-          <label>Backend</label>
-          <select id="backend"></select>
-          <label>Voice</label>
-          <select id="voice"></select>
-          <div><button class="action" id="gen-btn">Generate voiceover</button></div>
-          <div class="log" id="gen-log">Ready.</div>
+      <section class="view scroll" id="v-script">
+        <div class="wrap">
+          <span class="eyebrow">Project</span>
+          <h1>Script</h1>
+          <p class="lead">Each scene has a title, a supporting line, and the narration that's spoken. Edit here (or ask Claude in the terminal to write it), <b>Save</b>, then generate the voiceover.</p>
+          <div id="scenes"></div>
+          <div class="row" style="margin-top: 8px">
+            <button class="btn ghost" id="add-scene">+ Add scene</button>
+            <button class="btn primary" id="save-script">Save script</button>
+          </div>
         </div>
       </section>
 
-      <section class="tab" id="tab-render">
-        <div class="pad">
-          <h2>Render final MP4</h2>
-          <p class="hint">
-            Renders the <code id="comp-name">composition</code> to
-            <code>/out</code> (a persistent Docker volume). Progress is live.
-          </p>
-          <div><button class="action" id="render-btn">Render MP4</button></div>
-          <div class="bar"><div id="render-bar"></div></div>
-          <div class="log" id="render-log">Ready.</div>
-          <div id="output"></div>
+      <section class="view scroll" id="v-voice">
+        <div class="wrap">
+          <span class="eyebrow">Narration</span>
+          <h1>Voiceover</h1>
+          <p class="lead">Pick a backend and voice, preview it, then generate narration for every scene. <b>ElevenLabs</b> is cloud (needs a key); <b>Piper</b> and <b>espeak</b> are offline models bundled in the image.</p>
+          <div class="card">
+            <label>Backend</label>
+            <div class="seg" id="backend-seg"></div>
+            <div class="row" style="margin-top: 16px">
+              <div style="flex: 1; min-width: 260px">
+                <label>Voice</label>
+                <select id="voice"></select>
+              </div>
+              <button class="btn ghost" id="preview-btn">🔊 Preview</button>
+            </div>
+            <div class="row" style="margin-top: 18px">
+              <button class="btn primary" id="gen-btn">Generate voiceover</button>
+            </div>
+            <div class="log" id="gen-log">Ready.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view scroll" id="v-render">
+        <div class="wrap">
+          <span class="eyebrow">Export</span>
+          <h1>Render</h1>
+          <p class="lead">Render the composition to an MP4 in the persistent output volume, then play or download it below.</p>
+          <div class="card">
+            <div class="row"><button class="btn primary" id="render-btn">● Render MP4</button></div>
+            <div class="bar" style="margin-top: 18px"><div id="render-bar"></div></div>
+            <div class="log" id="render-log">Ready.</div>
+          </div>
+          <span class="eyebrow">Rendered videos</span>
+          <div class="gallery" id="gallery" style="margin-top: 10px"></div>
         </div>
       </section>
     </main>
 
+    <div id="toasts"></div>
+
     <script>
-      const $ = (s) => document.querySelector(s);
+      const $ = (s, r = document) => r.querySelector(s);
+      const el = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
       let cfg = {};
 
-      // Tabs
-      document.querySelectorAll("nav button").forEach((b) =>
-        b.addEventListener("click", () => {
-          document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
-          document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-          b.classList.add("active");
-          $("#tab-" + b.dataset.tab).classList.add("active");
-        }),
-      );
+      const ICONS = {
+        studio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        script: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+        voice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+        render: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 4v5M17 4v5M7 15h10"/></svg>',
+        claude: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
+      };
+      const TABS = [
+        { id: "studio", label: "Studio" },
+        { id: "script", label: "Script" },
+        { id: "voice", label: "Voiceover" },
+        { id: "render", label: "Render" },
+        { id: "claude", label: "Claude CLI" },
+      ];
 
-      // Stream a POST SSE endpoint, calling onEvent per parsed JSON message.
+      function toast(msg, kind = "") {
+        const t = el(`<div class="toast ${kind}">${msg}</div>`);
+        $("#toasts").appendChild(t);
+        setTimeout(() => t.remove(), 4200);
+      }
+
+      function showTab(id) {
+        document.querySelectorAll(".rail button").forEach((b) => b.classList.toggle("active", b.dataset.tab === id));
+        document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+        $("#v-" + id).classList.add("active");
+        $("#crumb").textContent = TABS.find((t) => t.id === id).label;
+        if (id === "render") refreshOutputs();
+      }
+
+      // SSE over POST
       async function streamPost(url, body, onEvent) {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body || {}),
-        });
+        const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
@@ -151,8 +315,7 @@
           const { done, value } = await reader.read();
           if (done) break;
           buf += dec.decode(value, { stream: true });
-          const parts = buf.split("\n\n");
-          buf = parts.pop();
+          const parts = buf.split("\n\n"); buf = parts.pop();
           for (const part of parts) {
             const line = part.split("\n").find((l) => l.startsWith("data:"));
             if (line) onEvent(JSON.parse(line.slice(5).trim()));
@@ -160,103 +323,160 @@
         }
       }
 
-      async function loadVoices() {
-        const backend = $("#backend").value;
-        const voiceSel = $("#voice");
-        voiceSel.innerHTML = "<option>loading…</option>";
-        const r = await fetch("/api/voices?backend=" + backend).then((x) => x.json());
-        if (r.error) {
-          voiceSel.innerHTML = `<option value="">${r.error}</option>`;
-          return;
-        }
-        if (!r.voices || !r.voices.length) {
-          voiceSel.innerHTML = `<option value="">no voices available for ${backend}</option>`;
-          return;
-        }
-        voiceSel.innerHTML = r.voices
-          .map((v) => `<option value="${v.id}">${v.name}</option>`)
-          .join("");
+      // ---- scene editor ----
+      function sceneCard(s, i) {
+        const c = el(`<div class="scene">
+          <div class="head"><span class="num">${String(i + 1).padStart(2, "0")}</span>
+            <input type="text" class="s-id" value="${s.id || ""}" style="max-width:220px" placeholder="scene-id" />
+            <span class="sp"></span>
+            <button class="mini up" title="Move up">↑</button>
+            <button class="mini down" title="Move down">↓</button>
+            <button class="mini del" title="Remove">✕</button>
+          </div>
+          <div class="grid2">
+            <div><label>Title</label><input type="text" class="s-title" value="${(s.title||"").replace(/"/g,'&quot;')}" /></div>
+            <div><label>Body</label><input type="text" class="s-body" value="${(s.body||"").replace(/"/g,'&quot;')}" /></div>
+          </div>
+          <div style="margin-top:12px"><label>Narration (spoken)</label><textarea class="s-narr">${s.narration||""}</textarea></div>
+        </div>`);
+        c.querySelector(".del").onclick = () => { c.remove(); renumber(); };
+        c.querySelector(".up").onclick = () => { const p = c.previousElementSibling; if (p) c.parentNode.insertBefore(c, p); renumber(); };
+        c.querySelector(".down").onclick = () => { const n = c.nextElementSibling; if (n) c.parentNode.insertBefore(n, c); renumber(); };
+        return c;
+      }
+      function renumber() { document.querySelectorAll("#scenes .scene .num").forEach((n, i) => (n.textContent = String(i + 1).padStart(2, "0"))); }
+      function collectScenes() {
+        return [...document.querySelectorAll("#scenes .scene")].map((c) => ({
+          id: c.querySelector(".s-id").value.trim(),
+          title: c.querySelector(".s-title").value,
+          body: c.querySelector(".s-body").value,
+          narration: c.querySelector(".s-narr").value,
+        }));
       }
 
+      async function loadScenes() {
+        const r = await fetch("/api/scenes").then((x) => x.json());
+        const box = $("#scenes"); box.innerHTML = "";
+        (r.scenes || []).forEach((s, i) => box.appendChild(sceneCard(s, i)));
+      }
+      $("#add-scene").onclick = () => {
+        const i = document.querySelectorAll("#scenes .scene").length;
+        $("#scenes").appendChild(sceneCard({ id: `${String(i + 1).padStart(2, "0")}-scene`, title: "New scene", body: "", narration: "" }, i));
+      };
+      $("#save-script").onclick = async () => {
+        const scenes = collectScenes();
+        const r = await fetch("/api/scenes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenes }) }).then((x) => x.json());
+        if (r.ok) toast(`Saved ${r.count} scenes. Regenerate voiceover to hear changes.`, "ok");
+        else toast("Save failed: " + (r.error || "?"), "err");
+      };
+
+      // ---- voices ----
+      async function loadVoices() {
+        const backend = $("#backend-seg .active")?.dataset.b || "espeak";
+        $("#be").textContent = backend;
+        const sel = $("#voice"); sel.innerHTML = "<option>loading…</option>";
+        const r = await fetch("/api/voices?backend=" + backend).then((x) => x.json());
+        if (r.error) { sel.innerHTML = `<option value="">${r.error}</option>`; return; }
+        if (!r.voices?.length) { sel.innerHTML = `<option value="">no voices for ${backend}</option>`; return; }
+        sel.innerHTML = r.voices.map((v) => `<option value="${v.id}">${v.name}</option>`).join("");
+      }
+
+      $("#preview-btn").onclick = async (e) => {
+        const btn = e.currentTarget, voice = $("#voice").value;
+        const backend = $("#backend-seg .active").dataset.b;
+        if (!voice) return toast("Pick a voice first", "err");
+        btn.disabled = true; btn.textContent = "…synthesizing";
+        try {
+          const res = await fetch("/api/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backend, voice }) });
+          if (!res.ok) throw new Error((await res.json()).error || res.status);
+          const url = URL.createObjectURL(await res.blob());
+          new Audio(url).play();
+        } catch (err) { toast("Preview failed: " + err.message, "err"); }
+        btn.disabled = false; btn.textContent = "🔊 Preview";
+      };
+
+      $("#gen-btn").onclick = async (e) => {
+        const btn = e.currentTarget, log = $("#gen-log");
+        const backend = $("#backend-seg .active").dataset.b, voice = $("#voice").value;
+        if (!voice) return toast("Pick a voice first", "err");
+        btn.disabled = true; log.textContent = "Starting…\n";
+        try {
+          await streamPost("/api/voiceover", { backend, voice }, (ev) => {
+            if (ev.type === "progress") log.textContent += `[${ev.i + 1}/${ev.total}] ${ev.id} — ${ev.stage}\n`;
+            else if (ev.type === "error") { log.textContent += `ERROR (${ev.id || ""}): ${ev.error}\n`; toast("Voiceover error", "err"); }
+            else if (ev.type === "done") { log.textContent += `✓ Done — ${ev.count} clips.\n`; toast(`Generated ${ev.count} voiceover clips`, "ok"); }
+            log.scrollTop = log.scrollHeight;
+          });
+        } catch (err) { log.textContent += "ERROR: " + err.message; }
+        btn.disabled = false;
+      };
+
+      // ---- render ----
+      $("#render-btn").onclick = async (e) => {
+        const btn = e.currentTarget, log = $("#render-log"), bar = $("#render-bar");
+        btn.disabled = true; log.textContent = "Rendering…"; bar.style.width = "0";
+        try {
+          await streamPost("/api/render", {}, (ev) => {
+            if (ev.type === "progress") { bar.style.width = ev.pct + "%"; log.textContent = `Rendering… ${ev.pct}%  (${ev.done}/${ev.total} frames)`; }
+            else if (ev.type === "done") { bar.style.width = "100%"; log.textContent = "✓ Render complete."; toast("Render complete", "ok"); refreshOutputs(); }
+            else if (ev.type === "error") { log.textContent = "ERROR: " + ev.error; toast("Render failed", "err"); }
+          });
+        } catch (err) { log.textContent = "ERROR: " + err.message; }
+        btn.disabled = false;
+      };
+
+      async function refreshOutputs() {
+        const r = await fetch("/api/output").then((x) => x.json());
+        const g = $("#gallery");
+        if (!r.videos?.length) { g.innerHTML = `<p class="hint">No renders yet.</p>`; return; }
+        g.innerHTML = "";
+        r.videos.sort((a, b) => b.mtime - a.mtime).forEach((v) => {
+          g.appendChild(el(`<div class="vcard">
+            <video controls preload="metadata" src="/output/${v.name}"></video>
+            <div class="meta"><span class="fn">${v.name}</span><span class="sz">${(v.size/1e6).toFixed(1)} MB</span></div>
+            <div class="meta" style="padding-top:0"><a class="dl" href="/output/${v.name}?download=1" download>⬇ Download</a></div>
+          </div>`));
+        });
+      }
+
+      // ---- theme ----
+      $("#theme").onclick = () => {
+        const cur = document.documentElement.getAttribute("data-theme");
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem("theme", next); } catch {}
+      };
+
       async function init() {
+        try { const saved = localStorage.getItem("theme"); if (saved) document.documentElement.setAttribute("data-theme", saved); } catch {}
         cfg = await fetch("/api/config").then((r) => r.json());
         const host = location.hostname;
         $("#studio-frame").src = `//${host}:${cfg.studioPort}`;
         $("#claude-frame").src = `//${host}:${cfg.ttydPort}`;
-        $("#comp-name").textContent = cfg.compositionId;
-        $("#sub").textContent = `composition: ${cfg.compositionId}`;
-        $("#backend").innerHTML = cfg.backends
-          .map((b) => `<option value="${b}">${b}</option>`)
-          .join("");
-        $("#backend").value = cfg.hasElevenKey ? "elevenlabs" : "espeak";
-        $("#backend").addEventListener("change", loadVoices);
+        $("#comp").textContent = cfg.compositionId;
+
+        // nav
+        const nav = $("#nav");
+        TABS.forEach((t) => {
+          const b = el(`<button data-tab="${t.id}">${ICONS[t.id]}<span>${t.label}</span></button>`);
+          b.onclick = () => showTab(t.id);
+          nav.appendChild(b);
+        });
+        showTab("studio");
+
+        // backend segmented control
+        const seg = $("#backend-seg");
+        cfg.backends.forEach((b) => {
+          const btn = el(`<button data-b="${b}">${b}</button>`);
+          btn.onclick = () => { seg.querySelectorAll("button").forEach((x) => x.classList.remove("active")); btn.classList.add("active"); loadVoices(); };
+          seg.appendChild(btn);
+        });
+        const def = cfg.hasElevenKey ? "elevenlabs" : "espeak";
+        (seg.querySelector(`[data-b="${def}"]`) || seg.firstChild).classList.add("active");
+
+        await loadScenes();
         await loadVoices();
-        refreshOutputs();
       }
-
-      $("#gen-btn").addEventListener("click", async () => {
-        const btn = $("#gen-btn"),
-          log = $("#gen-log");
-        btn.disabled = true;
-        log.textContent = "Starting…\n";
-        try {
-          await streamPost(
-            "/api/voiceover",
-            { backend: $("#backend").value, voice: $("#voice").value },
-            (e) => {
-              if (e.type === "progress")
-                log.textContent += `[${e.i + 1}/${e.total}] ${e.id} — ${e.stage}\n`;
-              else if (e.type === "error") log.textContent += `ERROR (${e.id || ""}): ${e.error}\n`;
-              else if (e.type === "done") log.textContent += `✓ Done — ${e.count} clips.\n`;
-              log.scrollTop = log.scrollHeight;
-            },
-          );
-        } catch (e) {
-          log.textContent += "ERROR: " + e.message + "\n";
-        }
-        btn.disabled = false;
-      });
-
-      $("#render-btn").addEventListener("click", async () => {
-        const btn = $("#render-btn"),
-          log = $("#render-log"),
-          bar = $("#render-bar");
-        btn.disabled = true;
-        log.textContent = "Rendering…\n";
-        bar.style.width = "0";
-        try {
-          await streamPost("/api/render", {}, (e) => {
-            if (e.type === "progress") {
-              bar.style.width = e.pct + "%";
-              log.textContent = `Rendering… ${e.pct}% (${e.done}/${e.total})`;
-            } else if (e.type === "done") {
-              bar.style.width = "100%";
-              log.textContent = "✓ Render complete.";
-              refreshOutputs();
-            } else if (e.type === "error") {
-              log.textContent = "ERROR: " + e.error;
-            }
-          });
-        } catch (e) {
-          log.textContent = "ERROR: " + e.message;
-        }
-        btn.disabled = false;
-      });
-
-      async function refreshOutputs() {
-        const r = await fetch("/api/output").then((x) => x.json());
-        const el = $("#output");
-        if (!r.videos || !r.videos.length) {
-          el.innerHTML = "";
-          return;
-        }
-        const latest = r.videos.sort((a, b) => b.mtime - a.mtime)[0];
-        el.innerHTML =
-          `<video controls src="/output/${latest.name}"></video>` +
-          `<p><a class="dl" href="/output/${latest.name}" download>⬇ Download ${latest.name}</a> ` +
-          `(${(latest.size / 1e6).toFixed(1)} MB)</p>`;
-      }
-
       init();
     </script>
   </body>

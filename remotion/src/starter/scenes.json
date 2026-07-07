@@ -1,0 +1,26 @@
+{
+  "compositionId": "starter",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "scenes": [
+    {
+      "id": "01-intro",
+      "title": "Your New Video",
+      "body": "Edit this script in the GUI, or ask Claude to write it.",
+      "narration": "Welcome to A I Video Creator. This is a starter video. Edit the script in the voiceover tab, or ask Claude in the CLI tab to write new scenes for you."
+    },
+    {
+      "id": "02-scenes",
+      "title": "Add Your Scenes",
+      "body": "Each scene has a title, a body line, and narration.",
+      "narration": "Each scene has a title, a body line, and a line of narration. Pick a voice, generate the voiceover, and every scene resizes to fit its own audio automatically."
+    },
+    {
+      "id": "03-render",
+      "title": "Render & Download",
+      "body": "Export an MP4 from the Render tab.",
+      "narration": "When you are happy, render your video to an M P 4 from the render tab, then download it. Happy creating!"
+    }
+  ]
+}

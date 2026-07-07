@@ -8,12 +8,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GUI_PORT=8080 \
     STUDIO_PORT=3000 \
     TTYD_PORT=7681 \
-    COMPOSITION_ID=identity-integration
+    COMPOSITION_ID=starter
 
 # --- system deps: ffmpeg, offline TTS (espeak-ng), supervisor, and the
 #     shared libraries Chromium (Remotion's renderer) needs on Debian ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg espeak-ng supervisor curl ca-certificates \
+      ffmpeg espeak-ng supervisor curl ca-certificates tmux \
       libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
       libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
       libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libx11-6 \
@@ -45,8 +45,12 @@ RUN npm install -g @anthropic-ai/claude-code || echo "WARN: claude CLI install s
 WORKDIR /app
 
 # Install Remotion project deps first (better layer caching)
-COPY remotion/package.json remotion/package-lock.json ./remotion/
-RUN cd remotion && npm ci
+COPY remotion/package.json ./remotion/
+RUN cd remotion && npm install --no-audit --no-fund
+
+# Download the Chromium headless shell now — before copying source — so later
+# source edits don't invalidate this (slow) layer.
+RUN cd remotion && npx remotion browser ensure
 
 # App source
 COPY remotion ./remotion
@@ -58,10 +62,8 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-shell.sh
 
 # Keep a pristine copy of the shipped voiceover so the entrypoint can seed the
 # (persistent) voiceover volume on first run.
-RUN cp -a remotion/public/voiceover remotion/public/voiceover.default
-
-# Download the Chromium headless shell Remotion renders with
-RUN cd remotion && npx remotion browser ensure
+RUN mkdir -p remotion/public/voiceover \
+    && cp -a remotion/public/voiceover remotion/public/voiceover.default
 
 EXPOSE 8080 3000 7681
 
