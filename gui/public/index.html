@@ -234,7 +234,7 @@
         <div class="wrap">
           <span class="eyebrow">Narration</span>
           <h1>Voiceover</h1>
-          <p class="lead">Pick a backend and voice, preview it, then generate narration for every scene. <b>ElevenLabs</b> is cloud (needs a key); <b>Piper</b> and <b>espeak</b> are offline models bundled in the image.</p>
+          <p class="lead">Pick a backend and voice, preview it, then generate narration for every scene. <b>ElevenLabs</b> is cloud (needs a key); <b>Piper</b> and <b>espeak</b> are offline models bundled in the image; <b>xtts</b> is offline voice cloning — record or upload a clip of your own voice below.</p>
           <div class="card">
             <label>Backend</label>
             <div class="seg" id="backend-seg"></div>
@@ -249,6 +249,24 @@
               <button class="btn primary" id="gen-btn">Generate voiceover</button>
             </div>
             <div class="log" id="gen-log">Ready.</div>
+          </div>
+
+          <div class="card" id="xtts-panel" style="display: none">
+            <label>Clone a voice</label>
+            <p class="hint" style="margin: 0 0 12px">Upload a clip or record ~10s of your own voice, name it, then Save — it shows up in the Voice list above like any other voice.</p>
+            <div class="row">
+              <div style="min-width: 160px">
+                <label>Clip name</label>
+                <input type="text" id="xtts-name" placeholder="my-voice" />
+              </div>
+              <div>
+                <label>Upload</label>
+                <input type="file" id="xtts-file" accept="audio/*" />
+              </div>
+              <button class="btn ghost" id="xtts-record">● Record</button>
+              <button class="btn primary" id="xtts-save" disabled>Save clip</button>
+            </div>
+            <div class="hint" id="xtts-status" style="margin-top: 10px">No clip selected yet.</div>
           </div>
         </div>
       </section>
@@ -379,7 +397,64 @@
         if (r.error) { sel.innerHTML = `<option value="">${r.error}</option>`; return; }
         if (!r.voices?.length) { sel.innerHTML = `<option value="">no voices for ${backend}</option>`; return; }
         sel.innerHTML = r.voices.map((v) => `<option value="${v.id}">${v.name}</option>`).join("");
+        // Restore the previously chosen voice for this backend, if still available.
+        const savedVoice = localStorage.getItem("voiceVoice:" + backend);
+        if (savedVoice && r.voices.some((v) => v.id === savedVoice)) sel.value = savedVoice;
+        sel.onchange = () => { try { localStorage.setItem("voiceVoice:" + backend, sel.value); } catch {} };
       }
+
+      // ---- xtts: reference clip upload / in-browser recording ----
+      let xttsBlob = null;
+      let xttsRecorder = null, xttsChunks = [];
+
+      function setXttsStatus(msg) { $("#xtts-status").textContent = msg; }
+      function xttsReady() { $("#xtts-save").disabled = !(xttsBlob && $("#xtts-name").value.trim()); }
+
+      $("#xtts-file").onchange = (e) => {
+        xttsBlob = e.target.files[0] || null;
+        setXttsStatus(xttsBlob ? `File selected: ${xttsBlob.name}` : "No clip selected yet.");
+        xttsReady();
+      };
+      $("#xtts-name").oninput = xttsReady;
+
+      $("#xtts-record").onclick = async (e) => {
+        const btn = e.currentTarget;
+        if (xttsRecorder && xttsRecorder.state === "recording") {
+          xttsRecorder.stop();
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          xttsChunks = [];
+          xttsRecorder = new MediaRecorder(stream);
+          xttsRecorder.ondataavailable = (ev) => xttsChunks.push(ev.data);
+          xttsRecorder.onstop = () => {
+            stream.getTracks().forEach((t) => t.stop());
+            xttsBlob = new Blob(xttsChunks, { type: "audio/webm" });
+            btn.textContent = "● Record";
+            setXttsStatus("Recorded a clip, ready to save.");
+            xttsReady();
+          };
+          xttsRecorder.start();
+          btn.textContent = "■ Stop";
+          setXttsStatus("Recording… speak for ~10s, then Stop.");
+        } catch (err) { toast("Mic access failed: " + err.message, "err"); }
+      };
+
+      $("#xtts-save").onclick = async (e) => {
+        const btn = e.currentTarget, name = $("#xtts-name").value.trim();
+        if (!xttsBlob || !name) return;
+        btn.disabled = true; setXttsStatus("Saving…");
+        try {
+          const r = await fetch("/api/xtts/refs?name=" + encodeURIComponent(name), { method: "POST", body: xttsBlob }).then((x) => x.json());
+          if (r.error) throw new Error(r.error);
+          setXttsStatus(`Saved as "${name}". Reloading voice list…`);
+          toast(`Saved voice clip "${name}"`, "ok");
+          xttsBlob = null; $("#xtts-file").value = ""; $("#xtts-name").value = "";
+          await loadVoices();
+        } catch (err) { setXttsStatus("Save failed: " + err.message); toast("Save failed: " + err.message, "err"); }
+        btn.disabled = true;
+      };
 
       $("#preview-btn").onclick = async (e) => {
         const btn = e.currentTarget, voice = $("#voice").value;
@@ -451,8 +526,14 @@
         try { const saved = localStorage.getItem("theme"); if (saved) document.documentElement.setAttribute("data-theme", saved); } catch {}
         cfg = await fetch("/api/config").then((r) => r.json());
         const host = location.hostname;
-        $("#studio-frame").src = `//${host}:${cfg.studioPort}`;
-        $("#claude-frame").src = `//${host}:${cfg.ttydPort}`;
+        // If the GUI itself was opened over https (via the nginx proxy),
+        // point the iframes at the matching https ports too — otherwise a
+        // mixed-content block hides Studio/Claude CLI entirely.
+        const useHttps = location.protocol === "https:";
+        const studioPort = (useHttps && cfg.studioPortHttps) || cfg.studioPort;
+        const ttydPort = (useHttps && cfg.ttydPortHttps) || cfg.ttydPort;
+        $("#studio-frame").src = `//${host}:${studioPort}`;
+        $("#claude-frame").src = `//${host}:${ttydPort}`;
         $("#comp").textContent = cfg.compositionId;
 
         // nav
@@ -468,11 +549,25 @@
         const seg = $("#backend-seg");
         cfg.backends.forEach((b) => {
           const btn = el(`<button data-b="${b}">${b}</button>`);
-          btn.onclick = () => { seg.querySelectorAll("button").forEach((x) => x.classList.remove("active")); btn.classList.add("active"); loadVoices(); };
+          btn.onclick = () => {
+            seg.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+            btn.classList.add("active");
+            $("#xtts-panel").style.display = b === "xtts" ? "block" : "none";
+            try { localStorage.setItem("voiceBackend", b); } catch {}
+            loadVoices();
+          };
           seg.appendChild(btn);
         });
-        const def = cfg.defaultBackend || (cfg.hasElevenKey ? "elevenlabs" : "piper");
+        // A backend you've explicitly picked before wins over the server's
+        // auto-detected default — it should never silently flip back.
+        let savedBackend = null;
+        try { savedBackend = localStorage.getItem("voiceBackend"); } catch {}
+        const def =
+          (savedBackend && cfg.backends.includes(savedBackend) && savedBackend) ||
+          cfg.defaultBackend ||
+          (cfg.hasElevenKey ? "elevenlabs" : "piper");
         (seg.querySelector(`[data-b="${def}"]`) || seg.firstChild).classList.add("active");
+        $("#xtts-panel").style.display = def === "xtts" ? "block" : "none";
 
         await loadScenes();
         await loadVoices();

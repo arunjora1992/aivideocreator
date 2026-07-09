@@ -4,6 +4,8 @@ services:
     image: aivideocreator:latest
     container_name: aivideocreator
     restart: unless-stopped
+    depends_on:
+      - xtts
     ports:
       - "${GUI_HOST_PORT:-8090}:8080" # GUI (open this in your browser)
       - "${STUDIO_HOST_PORT:-3100}:3000" # Remotion Studio (embedded in the Studio tab)
@@ -13,9 +15,16 @@ services:
       # correctly (must match the left-hand side of the port mappings above).
       PUBLIC_STUDIO_PORT: ${STUDIO_HOST_PORT:-3100}
       PUBLIC_TTYD_PORT: ${TTYD_HOST_PORT:-7681}
+      # https equivalents, served by the nginx service below — used instead
+      # of the plain-http ports whenever the GUI itself was opened over https
+      # (required for microphone access on a non-localhost host).
+      PUBLIC_STUDIO_PORT_HTTPS: ${STUDIO_HTTPS_PORT:-3943}
+      PUBLIC_TTYD_PORT_HTTPS: ${TTYD_HTTPS_PORT:-7943}
       # Voiceover: ElevenLabs (cloud) is used when a key is present; otherwise
-      # pick the offline "piper" or "espeak" backend in the GUI.
+      # pick the offline "piper", "espeak", or cloned-voice "xtts" backend.
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Reach the standalone voice-cloning service over the compose network.
+      XTTS_URL: http://xtts:8091
       # Only needed if you want to authenticate the Claude CLI with an API key
       # instead of interactive /login.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -27,8 +36,40 @@ services:
       - claude_config:/root/.claude
       # Persist voiceover clips you regenerate from the GUI.
       - voiceover:/app/remotion/public/voiceover
+      # Reference voice clips (uploaded/recorded), shared with the xtts service.
+      - voiceover_refs:/app/remotion/public/voiceover_refs
+
+  # Standalone CPU voice-cloning service (Coqui XTTS-v2). Kept in its own
+  # container/image so PyTorch never bloats the main Node image.
+  xtts:
+    build: ./docker/xtts
+    image: aivideocreator-xtts:latest
+    container_name: aivideocreator-xtts
+    restart: unless-stopped
+    mem_limit: 4g
+    volumes:
+      # Model weights (~1.8GB), downloaded on first run — persists across rebuilds.
+      - xtts_models:/models
+      - voiceover_refs:/refs
+
+  # TLS-terminating reverse proxy: https access to the GUI + its embedded
+  # Studio/Claude iframes, needed for microphone access when the GUI isn't
+  # opened via localhost. Self-signed cert — browser will warn once.
+  nginx:
+    build: ./docker/nginx
+    image: aivideocreator-nginx:latest
+    container_name: aivideocreator-nginx
+    restart: unless-stopped
+    depends_on:
+      - aivideocreator
+    ports:
+      - "${GUI_HTTPS_PORT:-8943}:8443" # GUI over https (use this for mic access)
+      - "${STUDIO_HTTPS_PORT:-3943}:3443"
+      - "${TTYD_HTTPS_PORT:-7943}:7443"
 
 volumes:
   output:
   claude_config:
   voiceover:
+  voiceover_refs:
+  xtts_models:

@@ -6,13 +6,13 @@
 //   3. Script    — edit each scene (title / body / narration) + generate voiceover
 //   4. Render    — render the MP4, watch live progress, play + download outputs
 import { createServer } from "node:http";
-import { readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { listVoices, synthesize } from "./lib/tts.mjs";
+import { listVoices, synthesize, VOICE_REFS_DIR } from "./lib/tts.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -32,6 +32,11 @@ const STUDIO_PORT = Number(
 const TTYD_PORT = Number(
   process.env.PUBLIC_TTYD_PORT || process.env.TTYD_PORT || 7681,
 );
+// https equivalents (served by the nginx service), used by the frontend
+// instead of the plain-http ports whenever the GUI itself was loaded over
+// https — required for microphone access on a non-localhost host.
+const STUDIO_PORT_HTTPS = Number(process.env.PUBLIC_STUDIO_PORT_HTTPS || 0) || null;
+const TTYD_PORT_HTTPS = Number(process.env.PUBLIC_TTYD_PORT_HTTPS || 0) || null;
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -95,8 +100,10 @@ const server = createServer(async (req, res) => {
         compositionId: COMPOSITION_ID,
         studioPort: STUDIO_PORT,
         ttydPort: TTYD_PORT,
+        studioPortHttps: STUDIO_PORT_HTTPS,
+        ttydPortHttps: TTYD_PORT_HTTPS,
         hasElevenKey,
-        backends: ["elevenlabs", "piper", "espeak"],
+        backends: ["elevenlabs", "piper", "espeak", "xtts"],
         defaultBackend,
       });
     }
@@ -104,6 +111,34 @@ const server = createServer(async (req, res) => {
     if (p === "/api/voices") {
       const backend = url.searchParams.get("backend") || "elevenlabs";
       return json(res, 200, await listVoices(backend));
+    }
+
+    // ---- xtts reference clip: upload a file OR an in-browser recording ----
+    // Both a <input type="file">'s File and a MediaRecorder's Blob are valid
+    // fetch() bodies, so this one raw-body route serves both.
+    if (p === "/api/xtts/refs" && req.method === "POST") {
+      const name = (url.searchParams.get("name") || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!name) return json(res, 400, { error: "no name" });
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const raw = Buffer.concat(chunks);
+      if (!raw.length) return json(res, 400, { error: "empty body" });
+      await mkdir(VOICE_REFS_DIR, { recursive: true });
+      const outWav = path.join(VOICE_REFS_DIR, `${name}.wav`);
+      await new Promise((resolve, reject) => {
+        // Normalize whatever codec came in (WebM/Opus from MediaRecorder, or
+        // an arbitrary upload) to the 16kHz mono wav XTTS expects.
+        const proc = spawn("ffmpeg", ["-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", outWav]);
+        let err = "";
+        proc.stderr.on("data", (d) => (err += d));
+        proc.on("error", reject);
+        proc.on("close", (code) =>
+          code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${err}`)),
+        );
+        proc.stdin.write(raw);
+        proc.stdin.end();
+      });
+      return json(res, 200, { ok: true, id: `${name}.wav` });
     }
 
     // ---- scene script: read + save ----

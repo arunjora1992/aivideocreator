@@ -4,16 +4,26 @@
 //   - elevenlabs : ElevenLabs cloud TTS (needs ELEVENLABS_API_KEY). Best quality.
 //   - piper      : offline neural TTS (piper binary + .onnx voice). No API key.
 //   - espeak     : offline formant TTS (espeak-ng). Always available, robotic.
+//   - xtts       : offline CPU voice cloning (Coqui XTTS-v2), runs in its own
+//                  container reached over HTTP at XTTS_URL. `voice` is the
+//                  filename of a reference clip recorded/uploaded via the GUI.
 //
 // All backends ultimately write an MP3 (wav is converted with ffmpeg) so the
 // Remotion composition can consume it unchanged.
 import { spawn } from "node:child_process";
-import { writeFile, readdir, mkdir, rm } from "node:fs/promises";
+import { writeFile, readdir, mkdir, rm, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
 const PIPER_VOICES_DIR = process.env.PIPER_VOICES_DIR || "/opt/piper/voices";
+// Reference voice clips, on a volume shared with the xtts container.
+export const VOICE_REFS_DIR =
+  process.env.VOICE_REFS_DIR || "/app/remotion/public/voiceover_refs";
+// Same volume, as the xtts container sees it (docker-compose.yml mounts it
+// there) — paths sent over HTTP to xtts must use this, not VOICE_REFS_DIR.
+const XTTS_REFS_MOUNT = process.env.XTTS_REFS_MOUNT || "/refs";
+const XTTS_URL = process.env.XTTS_URL || "http://xtts:8091";
 
 const run = (cmd, args, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -68,7 +78,51 @@ export async function listVoices(backend) {
       ],
     };
   }
+  if (backend === "xtts") {
+    if (!existsSync(VOICE_REFS_DIR)) return { voices: [] };
+    const files = (await readdir(VOICE_REFS_DIR)).filter((f) => f.endsWith(".wav"));
+    return { voices: files.map((f) => ({ id: f, name: f.replace(/\.wav$/, "") })) };
+  }
   return { error: `unknown backend ${backend}` };
+}
+
+// ---- xtts voice cloning: call the standalone container over HTTP ----------
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function synthesizeXtts({ voice, text, tmpWav }) {
+  // Shared-volume scratch file: GUI and xtts containers mount the same
+  // volume at different paths (VOICE_REFS_DIR vs XTTS_REFS_MOUNT), so the
+  // xtts container is told to write using its own mount prefix.
+  const scratchName = `_xtts-${process.pid}-${Date.now()}.wav`;
+  const sharedOut = path.join(VOICE_REFS_DIR, scratchName);
+  const body = JSON.stringify({
+    text,
+    refAudioPath: path.posix.join(XTTS_REFS_MOUNT, voice),
+    outWav: path.posix.join(XTTS_REFS_MOUNT, scratchName),
+  });
+
+  const deadline = Date.now() + 90_000;
+  for (;;) {
+    const res = await fetch(`${XTTS_URL}/synthesize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    if (res.status === 503) {
+      if (Date.now() > deadline) throw new Error("xtts model still warming up after 90s");
+      await sleep(2000);
+      continue;
+    }
+    if (!res.ok) throw new Error(`xtts ${res.status}: ${await res.text()}`);
+    break;
+  }
+
+  try {
+    await copyFile(sharedOut, tmpWav);
+  } finally {
+    await rm(sharedOut, { force: true });
+  }
 }
 
 // ---- synthesis of a single line -------------------------------------------
@@ -108,6 +162,10 @@ export async function synthesize({ backend, voice, text, outMp3 }) {
       await run("piper", ["--model", model, "--output_file", tmpWav], { stdin: text });
     } else if (backend === "espeak") {
       await run("espeak-ng", ["-v", voice, "-w", tmpWav, text]);
+    } else if (backend === "xtts") {
+      if (!existsSync(path.join(VOICE_REFS_DIR, voice)))
+        throw new Error(`xtts reference clip not found: ${voice}`);
+      await synthesizeXtts({ voice, text, tmpWav });
     } else {
       throw new Error(`unknown backend ${backend}`);
     }
