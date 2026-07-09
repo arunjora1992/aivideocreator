@@ -40,6 +40,18 @@ const run = (cmd, args, opts = {}) =>
     );
   });
 
+const runCapture = (cmd, args) =>
+  new Promise((resolve, reject) => {
+    const p = spawn(cmd, args);
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("error", reject);
+    p.on("close", (code) =>
+      code === 0 ? resolve(out) : reject(new Error(`${cmd} exited ${code}: ${err}`)),
+    );
+  });
+
 const wavToMp3 = async (wav, mp3) => {
   await run("ffmpeg", ["-y", "-i", wav, "-codec:a", "libmp3lame", "-qscale:a", "4", mp3]);
 };
@@ -68,15 +80,18 @@ export async function listVoices(backend) {
     return { voices: files.map((f) => ({ id: f, name: f.replace(/\.onnx$/, "") })) };
   }
   if (backend === "espeak") {
-    // A curated subset; espeak-ng ships dozens of language voices.
-    return {
-      voices: [
-        { id: "en-us", name: "English (US)" },
-        { id: "en-gb", name: "English (UK)" },
-        { id: "en-us+m3", name: "English (US) — male" },
-        { id: "en-us+f3", name: "English (US) — female" },
-      ],
-    };
+    // Every language espeak-ng ships, queried live rather than hardcoded —
+    // `espeak-ng --voices` output looks like:
+    //   Pty Language  Age/Gender VoiceName  File  Other Languages
+    //    5  ta         --/M      Tamil      dra/ta
+    const out = await runCapture("espeak-ng", ["--voices"]);
+    const voices = out
+      .split("\n")
+      .slice(1)
+      .map((line) => line.match(/^\s*\d+\s+(\S+)\s+\S+\s+(\S+)/))
+      .filter(Boolean)
+      .map(([, lang, name]) => ({ id: lang, name: `${name.replace(/_/g, " ")} (${lang})` }));
+    return { voices };
   }
   if (backend === "xtts") {
     if (!existsSync(VOICE_REFS_DIR)) return { voices: [] };
