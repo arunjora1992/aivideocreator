@@ -285,6 +285,17 @@
           <div class="gallery" id="gallery" style="margin-top: 10px"></div>
         </div>
       </section>
+
+      <section class="view scroll" id="v-progress">
+        <div class="wrap">
+          <span class="eyebrow">Automation</span>
+          <h1>Progress</h1>
+          <p class="lead">Every time <code>scenes.json</code> changes — you saving from the Script tab, or Claude editing it in the CLI tab — voiceover and render run automatically using the voice you've picked in the Voiceover tab. This tracks that live.</p>
+          <div class="card" id="progress-current"></div>
+          <span class="eyebrow">History</span>
+          <div id="progress-history" style="margin-top: 10px"></div>
+        </div>
+      </section>
     </main>
 
     <div id="toasts"></div>
@@ -300,11 +311,13 @@
         voice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
         render: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 4v5M17 4v5M7 15h10"/></svg>',
         claude: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
+        progress: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
       };
       const TABS = [
         { id: "studio", label: "Studio" },
         { id: "script", label: "Script" },
         { id: "voice", label: "Voiceover" },
+        { id: "progress", label: "Progress" },
         { id: "render", label: "Render" },
         { id: "claude", label: "Claude CLI" },
       ];
@@ -315,12 +328,56 @@
         setTimeout(() => t.remove(), 4200);
       }
 
+      let progressPollTimer = null;
       function showTab(id) {
         document.querySelectorAll(".rail button").forEach((b) => b.classList.toggle("active", b.dataset.tab === id));
         document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
         $("#v-" + id).classList.add("active");
         $("#crumb").textContent = TABS.find((t) => t.id === id).label;
         if (id === "render") refreshOutputs();
+        clearInterval(progressPollTimer);
+        if (id === "progress") {
+          pollPipeline();
+          progressPollTimer = setInterval(pollPipeline, 2000);
+        }
+      }
+
+      // ---- automated pipeline progress ----
+      const STAGE_LABEL = { script: "Script", voiceover: "Voiceover", render: "Render" };
+      const STAGE_DOT = { pending: "○", running: "●", done: "✓", error: "✕" };
+
+      function stageRow(name, stage) {
+        const color = stage.status === "error" ? "var(--err)" : stage.status === "done" ? "var(--ok)" : "var(--muted)";
+        return `<div class="row" style="margin:6px 0;gap:8px">
+          <span style="width:18px;color:${color}">${STAGE_DOT[stage.status] || "○"}</span>
+          <b style="width:90px">${STAGE_LABEL[name]}</b>
+          <span class="hint">${stage.detail || (stage.status === "pending" ? "waiting…" : "")}</span>
+        </div>`;
+      }
+
+      function runCard(run) {
+        const when = new Date(run.startedAt).toLocaleString();
+        const stages = ["script", "voiceover", "render"].map((n) => stageRow(n, run.stages[n])).join("");
+        const link = run.outputUrl ? `<a class="dl" href="${run.outputUrl}">▶ View output</a>` : "";
+        const err = run.error ? `<div class="hint" style="color:var(--err);margin-top:6px">${run.error}</div>` : "";
+        return `<div>
+          <div class="hint mono">${when} — ${run.status}</div>
+          ${stages}
+          ${link}${err}
+        </div>`;
+      }
+
+      async function pollPipeline() {
+        try {
+          const r = await fetch("/api/pipeline/status").then((x) => x.json());
+          $("#progress-current").innerHTML = r.current
+            ? runCard(r.current)
+            : `<p class="hint">No run yet — save a script (Script tab, or ask Claude to write one) to kick off the pipeline.</p>`;
+          const hist = (r.history || []).filter((h) => h.id !== r.current?.id);
+          $("#progress-history").innerHTML = hist.length
+            ? hist.map((h) => `<div class="card">${runCard(h)}</div>`).join("")
+            : `<p class="hint">No past runs yet.</p>`;
+        } catch {}
       }
 
       // SSE over POST
@@ -389,6 +446,14 @@
       };
 
       // ---- voices ----
+      // The chosen backend/voice is persisted server-side (not just this
+      // browser) — the automated pipeline needs it even with no tab open.
+      let voiceSelection = {};
+      function saveVoiceSelection(backend, voice) {
+        voiceSelection = { backend, voice };
+        fetch("/api/voice-selection", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backend, voice }) }).catch(() => {});
+      }
+
       async function loadVoices() {
         const backend = $("#backend-seg .active")?.dataset.b || "espeak";
         $("#be").textContent = backend;
@@ -398,9 +463,8 @@
         if (!r.voices?.length) { sel.innerHTML = `<option value="">no voices for ${backend}</option>`; return; }
         sel.innerHTML = r.voices.map((v) => `<option value="${v.id}">${v.name}</option>`).join("");
         // Restore the previously chosen voice for this backend, if still available.
-        const savedVoice = localStorage.getItem("voiceVoice:" + backend);
-        if (savedVoice && r.voices.some((v) => v.id === savedVoice)) sel.value = savedVoice;
-        sel.onchange = () => { try { localStorage.setItem("voiceVoice:" + backend, sel.value); } catch {} };
+        if (voiceSelection.backend === backend && r.voices.some((v) => v.id === voiceSelection.voice)) sel.value = voiceSelection.voice;
+        sel.onchange = () => saveVoiceSelection(backend, sel.value);
       }
 
       // ---- xtts: reference clip upload / in-browser recording ----
@@ -525,6 +589,7 @@
       async function init() {
         try { const saved = localStorage.getItem("theme"); if (saved) document.documentElement.setAttribute("data-theme", saved); } catch {}
         cfg = await fetch("/api/config").then((r) => r.json());
+        voiceSelection = await fetch("/api/voice-selection").then((r) => r.json()).catch(() => ({}));
         const host = location.hostname;
         // If the GUI itself was opened over https (via the nginx proxy),
         // point the iframes at the matching https ports too — otherwise a
@@ -553,15 +618,13 @@
             seg.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
             btn.classList.add("active");
             $("#xtts-panel").style.display = b === "xtts" ? "block" : "none";
-            try { localStorage.setItem("voiceBackend", b); } catch {}
             loadVoices();
           };
           seg.appendChild(btn);
         });
         // A backend you've explicitly picked before wins over the server's
         // auto-detected default — it should never silently flip back.
-        let savedBackend = null;
-        try { savedBackend = localStorage.getItem("voiceBackend"); } catch {}
+        const savedBackend = voiceSelection.backend;
         const def =
           (savedBackend && cfg.backends.includes(savedBackend) && savedBackend) ||
           cfg.defaultBackend ||

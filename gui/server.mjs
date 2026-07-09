@@ -7,7 +7,7 @@
 //   4. Render    — render the MP4, watch live progress, play + download outputs
 import { createServer } from "node:http";
 import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, watch as fsWatch } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
@@ -21,6 +21,10 @@ const COMPOSITION_ID = process.env.COMPOSITION_ID || "starter";
 const SCENES_JSON = path.join(REMOTION_DIR, "src", "starter", "scenes.json");
 const VOICEOVER_DIR = path.join(REMOTION_DIR, "public", "voiceover", COMPOSITION_ID);
 const OUT_DIR = path.join(REMOTION_DIR, "out");
+// Which backend/voice to use for the automated pipeline — server-persisted
+// (not just browser localStorage) so it survives across devices/restarts and
+// is available even with no browser tab open.
+const VOICE_SELECTION_FILE = path.join(REMOTION_DIR, "public", "voiceover", "selection.json");
 
 const PORT = Number(process.env.GUI_PORT || 8080);
 // Ports the browser uses to reach Studio / the terminal. These are the HOST
@@ -65,6 +69,140 @@ const readBody = (req) =>
   });
 
 const readScenes = async () => JSON.parse(await readFile(SCENES_JSON, "utf8"));
+
+const readVoiceSelection = async () => {
+  try {
+    return JSON.parse(await readFile(VOICE_SELECTION_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+};
+const writeVoiceSelection = async (sel) => {
+  await mkdir(path.dirname(VOICE_SELECTION_FILE), { recursive: true });
+  await writeFile(VOICE_SELECTION_FILE, JSON.stringify(sel));
+};
+
+// ---- automated pipeline: watch scenes.json, then voiceover + render -------
+//
+// There's no clean signal for "Claude CLI finished responding" (it's a bare
+// interactive terminal — see claude-shell.sh), so the practical trigger is
+// scenes.json itself changing. A short debounce absorbs multiple writes
+// during one edit; a busy-guard queues at most one rerun if scenes.json
+// changes again mid-run instead of overlapping pipeline runs.
+
+const HISTORY_LIMIT = 20;
+const pipelineHistory = [];
+let current = null; // the in-progress/most-recent run, mirrored into history when it finishes
+let pipelineBusy = false;
+let rerunRequested = false;
+let debounceTimer = null;
+
+function newRun() {
+  current = {
+    id: Date.now(),
+    status: "running", // running | done | error
+    startedAt: Date.now(),
+    finishedAt: null,
+    stages: {
+      script: { status: "done", detail: null },
+      voiceover: { status: "pending", detail: null },
+      render: { status: "pending", detail: null },
+    },
+    error: null,
+    outputUrl: null,
+  };
+  return current;
+}
+
+function finishRun(status, error) {
+  current.status = status;
+  current.error = error || null;
+  current.finishedAt = Date.now();
+  pipelineHistory.unshift(current);
+  if (pipelineHistory.length > HISTORY_LIMIT) pipelineHistory.length = HISTORY_LIMIT;
+}
+
+async function runPipeline() {
+  const run = newRun();
+  try {
+    const { scenes } = await readScenes();
+    run.stages.script.detail = `${scenes.length} scene(s)`;
+
+    const sel = await readVoiceSelection();
+    if (!sel.backend || !sel.voice) {
+      run.stages.voiceover.status = "error";
+      run.stages.voiceover.detail = "no voice selected — pick one in the Voiceover tab first";
+      return finishRun("error", "no voice selected");
+    }
+
+    run.stages.voiceover.status = "running";
+    for (let i = 0; i < scenes.length; i++) {
+      const s = scenes[i];
+      run.stages.voiceover.detail = `${i + 1}/${scenes.length} — ${s.id}`;
+      await synthesize({
+        backend: sel.backend,
+        voice: sel.voice,
+        text: s.narration,
+        outMp3: path.join(VOICEOVER_DIR, `${s.id}.mp3`),
+      });
+    }
+    run.stages.voiceover.status = "done";
+    run.stages.voiceover.detail = `${scenes.length} clip(s) — ${sel.backend}/${sel.voice}`;
+
+    run.stages.render.status = "running";
+    const outFile = path.join("out", `${COMPOSITION_ID}.mp4`);
+    await new Promise((resolve, reject) => {
+      const proc = spawn("npx", ["remotion", "render", COMPOSITION_ID, outFile, "--log=info"], {
+        cwd: REMOTION_DIR,
+      });
+      let err = "";
+      const onData = (buf) => {
+        const s = buf.toString();
+        err += s;
+        const m = s.match(/(\d+)\s*\/\s*(\d+)/);
+        if (m) run.stages.render.detail = `${m[1]}/${m[2]} frames`;
+      };
+      proc.stdout.on("data", onData);
+      proc.stderr.on("data", onData);
+      proc.on("error", reject);
+      proc.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`render exited ${code}: ${err.slice(-500)}`)),
+      );
+    });
+    run.stages.render.status = "done";
+    run.outputUrl = `/output/${COMPOSITION_ID}.mp4`;
+    finishRun("done");
+  } catch (e) {
+    const stage = run.stages.voiceover.status === "running" ? "voiceover" : "render";
+    run.stages[stage].status = "error";
+    run.stages[stage].detail = e.message;
+    finishRun("error", e.message);
+  }
+}
+
+async function triggerPipeline() {
+  if (pipelineBusy) {
+    rerunRequested = true;
+    return;
+  }
+  pipelineBusy = true;
+  try {
+    do {
+      rerunRequested = false;
+      await runPipeline();
+    } while (rerunRequested);
+  } finally {
+    pipelineBusy = false;
+  }
+}
+
+if (existsSync(SCENES_JSON)) {
+  fsWatch(path.dirname(SCENES_JSON), (_event, filename) => {
+    if (filename !== path.basename(SCENES_JSON)) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(triggerPipeline, 4000);
+  });
+}
 
 const CT = {
   ".html": "text/html",
@@ -111,6 +249,22 @@ const server = createServer(async (req, res) => {
     if (p === "/api/voices") {
       const backend = url.searchParams.get("backend") || "elevenlabs";
       return json(res, 200, await listVoices(backend));
+    }
+
+    // ---- voice selection: the one manual choice the automated pipeline needs ----
+    if (p === "/api/voice-selection" && req.method === "GET") {
+      return json(res, 200, await readVoiceSelection());
+    }
+    if (p === "/api/voice-selection" && req.method === "POST") {
+      const { backend, voice } = await readBody(req);
+      if (!backend || !voice) return json(res, 400, { error: "backend and voice required" });
+      await writeVoiceSelection({ backend, voice });
+      return json(res, 200, { ok: true });
+    }
+
+    // ---- automated pipeline status: polled by the Progress tab ----
+    if (p === "/api/pipeline/status") {
+      return json(res, 200, { current, history: pipelineHistory });
     }
 
     // ---- xtts reference clip: upload a file OR an in-browser recording ----

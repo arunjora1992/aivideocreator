@@ -26,6 +26,7 @@ banner() {
 # off to an interactive login shell.
 if [ "$1" = "--inner" ]; then
   banner
+  cd /app 2>/dev/null
   exec bash -l
 fi
 
@@ -37,4 +38,5 @@ fi
 
 # tmux unavailable — fall back to a plain (non-persistent) shell.
 banner
+cd /app 2>/dev/null
 exec bash -l

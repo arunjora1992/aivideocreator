@@ -6,18 +6,13 @@ services:
     restart: unless-stopped
     depends_on:
       - xtts
-    ports:
-      - "${GUI_HOST_PORT:-8090}:8080" # GUI (open this in your browser)
-      - "${STUDIO_HOST_PORT:-3100}:3000" # Remotion Studio (embedded in the Studio tab)
-      - "${TTYD_HOST_PORT:-7681}:7681" # Claude CLI web terminal (embedded in the Claude tab)
+    # No host ports published here on purpose — plain http is never exposed
+    # outside the container. The nginx service below is the only externally
+    # reachable entry point (https, self-signed), reaching this container
+    # over the internal compose network instead.
     environment:
-      # Host-facing ports the GUI advertises so the embedded iframes resolve
-      # correctly (must match the left-hand side of the port mappings above).
-      PUBLIC_STUDIO_PORT: ${STUDIO_HOST_PORT:-3100}
-      PUBLIC_TTYD_PORT: ${TTYD_HOST_PORT:-7681}
-      # https equivalents, served by the nginx service below — used instead
-      # of the plain-http ports whenever the GUI itself was opened over https
-      # (required for microphone access on a non-localhost host).
+      # https ports the GUI advertises for its embedded Studio/Claude iframes
+      # (served by the nginx service below over the compose network).
       PUBLIC_STUDIO_PORT_HTTPS: ${STUDIO_HTTPS_PORT:-3943}
       PUBLIC_TTYD_PORT_HTTPS: ${TTYD_HTTPS_PORT:-7943}
       # Voiceover: ElevenLabs (cloud) is used when a key is present; otherwise

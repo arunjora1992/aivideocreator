@@ -55,6 +55,7 @@ RUN cd remotion && npx remotion browser ensure
 # App source
 COPY remotion ./remotion
 COPY gui ./gui
+COPY CLAUDE.md ./CLAUDE.md
 COPY supervisord.conf ./supervisord.conf
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/claude-shell.sh /usr/local/bin/claude-shell.sh
