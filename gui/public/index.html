@@ -268,6 +268,17 @@
             </div>
             <div class="hint" id="xtts-status" style="margin-top: 10px">No clip selected yet.</div>
           </div>
+
+          <div class="card">
+            <label>Presenter photo (optional)</label>
+            <p class="hint" style="margin: 0 0 12px">Upload one photo of a face and every scene renders as a lip-synced talking-head video instead of a plain text card. Skip this to keep the current text/motion-graphics look.</p>
+            <div class="row">
+              <input type="file" id="presenter-file" accept="image/*" />
+              <button class="btn primary" id="presenter-save" disabled>Upload</button>
+              <img id="presenter-preview" style="display:none;height:64px;border-radius:8px;border:1px solid var(--border)" />
+            </div>
+            <div class="hint" id="presenter-status" style="margin-top: 10px">Checking…</div>
+          </div>
         </div>
       </section>
 
@@ -343,10 +354,11 @@
       }
 
       // ---- automated pipeline progress ----
-      const STAGE_LABEL = { script: "Script", voiceover: "Voiceover", render: "Render" };
+      const STAGE_LABEL = { script: "Script", voiceover: "Voiceover", avatar: "Avatar", render: "Render" };
       const STAGE_DOT = { pending: "○", running: "●", done: "✓", error: "✕" };
 
       function stageRow(name, stage) {
+        if (!stage) return "";
         const color = stage.status === "error" ? "var(--err)" : stage.status === "done" ? "var(--ok)" : "var(--muted)";
         return `<div class="row" style="margin:6px 0;gap:8px">
           <span style="width:18px;color:${color}">${STAGE_DOT[stage.status] || "○"}</span>
@@ -357,7 +369,7 @@
 
       function runCard(run) {
         const when = new Date(run.startedAt).toLocaleString();
-        const stages = ["script", "voiceover", "render"].map((n) => stageRow(n, run.stages[n])).join("");
+        const stages = ["script", "voiceover", "avatar", "render"].map((n) => stageRow(n, run.stages[n])).join("");
         const link = run.outputUrl ? `<a class="dl" href="${run.outputUrl}">▶ View output</a>` : "";
         const err = run.error ? `<div class="hint" style="color:var(--err);margin-top:6px">${run.error}</div>` : "";
         return `<div>
@@ -520,6 +532,39 @@
         btn.disabled = true;
       };
 
+      // ---- presenter photo: optional, turns on avatar video in the pipeline ----
+      let presenterFile = null;
+      $("#presenter-file").onchange = (e) => {
+        presenterFile = e.target.files[0] || null;
+        $("#presenter-save").disabled = !presenterFile;
+      };
+      $("#presenter-save").onclick = async (e) => {
+        const btn = e.currentTarget;
+        if (!presenterFile) return;
+        btn.disabled = true;
+        $("#presenter-status").textContent = "Uploading…";
+        try {
+          const r = await fetch("/api/presenter-photo", { method: "POST", body: presenterFile }).then((x) => x.json());
+          if (r.error) throw new Error(r.error);
+          toast("Presenter photo saved — future renders will use it", "ok");
+          presenterFile = null; $("#presenter-file").value = "";
+          await refreshPresenterStatus();
+        } catch (err) { $("#presenter-status").textContent = "Upload failed: " + err.message; toast("Upload failed: " + err.message, "err"); }
+        btn.disabled = true;
+      };
+      async function refreshPresenterStatus() {
+        const r = await fetch("/api/presenter-photo").then((x) => x.json()).catch(() => ({}));
+        const img = $("#presenter-preview");
+        if (r.exists) {
+          img.src = "/presenter/photo.jpg?t=" + Date.now();
+          img.style.display = "inline-block";
+          $("#presenter-status").textContent = "Presenter photo set — avatar video is on.";
+        } else {
+          img.style.display = "none";
+          $("#presenter-status").textContent = "No photo uploaded — scenes render as text/motion-graphics.";
+        }
+      }
+
       $("#preview-btn").onclick = async (e) => {
         const btn = e.currentTarget, voice = $("#voice").value;
         const backend = $("#backend-seg .active").dataset.b;
@@ -634,6 +679,7 @@
 
         await loadScenes();
         await loadVoices();
+        await refreshPresenterStatus();
       }
       init();
     </script>

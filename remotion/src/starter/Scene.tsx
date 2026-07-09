@@ -11,10 +11,16 @@ import type { Scene as SceneData } from "./scenes";
 
 // A neutral, generic scene: title + body, with the narration shown as a caption
 // band. Replace or extend this to build richer videos.
+//
+// When `hasAvatar` is true, a talking-head video is already being rendered
+// behind this component (see StarterVideo) — the title/body text card and
+// solid background are skipped so the video shows through; only the
+// narration caption band stays, now acting as on-screen subtitles.
 export const Scene: React.FC<{
   scene: SceneData;
   durationInFrames: number;
-}> = ({ scene, durationInFrames }) => {
+  hasAvatar?: boolean;
+}> = ({ scene, durationInFrames, hasAvatar = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -38,49 +44,54 @@ export const Scene: React.FC<{
   return (
     // The background stays fully opaque so the very first frame (where Studio
     // parks the playhead) is never blank — only the content fades in/out.
-    <AbsoluteFill style={{ backgroundColor: COLORS.bg }}>
-      <AbsoluteFill
-        style={{
-          background: `radial-gradient(1300px 760px at 50% -10%, ${COLORS.bgGlow} 0%, rgba(245,247,251,0) 62%)`,
-        }}
-      />
-      <AbsoluteFill
-        style={{
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "120px 140px 260px",
-          textAlign: "center",
-          opacity,
-        }}
-      >
-        <div style={{ transform: `translateY(${rise}px)` }}>
-          <div
-            style={{
-              fontFamily: FONT.sans,
-              fontSize: 104,
-              fontWeight: 900,
-              color: COLORS.text,
-              lineHeight: 1.04,
-            }}
-          >
-            {scene.title}
-          </div>
-          {scene.body ? (
+    // (Skipped entirely when an avatar video is rendering behind this.)
+    <AbsoluteFill style={{ backgroundColor: hasAvatar ? "transparent" : COLORS.bg }}>
+      {!hasAvatar && (
+        <AbsoluteFill
+          style={{
+            background: `radial-gradient(1300px 760px at 50% -10%, ${COLORS.bgGlow} 0%, rgba(245,247,251,0) 62%)`,
+          }}
+        />
+      )}
+      {!hasAvatar && (
+        <AbsoluteFill
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "120px 140px 260px",
+            textAlign: "center",
+            opacity,
+          }}
+        >
+          <div style={{ transform: `translateY(${rise}px)` }}>
             <div
               style={{
                 fontFamily: FONT.sans,
-                fontSize: 48,
-                fontWeight: 500,
-                color: COLORS.muted,
-                marginTop: 28,
-                maxWidth: 1200,
+                fontSize: 104,
+                fontWeight: 900,
+                color: COLORS.text,
+                lineHeight: 1.04,
               }}
             >
-              {scene.body}
+              {scene.title}
             </div>
-          ) : null}
-        </div>
-      </AbsoluteFill>
+            {scene.body ? (
+              <div
+                style={{
+                  fontFamily: FONT.sans,
+                  fontSize: 48,
+                  fontWeight: 500,
+                  color: COLORS.muted,
+                  marginTop: 28,
+                  maxWidth: 1200,
+                }}
+              >
+                {scene.body}
+              </div>
+            ) : null}
+          </div>
+        </AbsoluteFill>
+      )}
 
       {/* Narration caption band */}
       <div

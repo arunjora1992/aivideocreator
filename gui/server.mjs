@@ -13,6 +13,12 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { listVoices, synthesize, VOICE_REFS_DIR } from "./lib/tts.mjs";
+import {
+  generateAvatarClip,
+  hasPresenterPhoto,
+  PRESENTER_DIR,
+  PRESENTER_PHOTO,
+} from "./lib/avatar.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -106,6 +112,7 @@ function newRun() {
     stages: {
       script: { status: "done", detail: null },
       voiceover: { status: "pending", detail: null },
+      avatar: { status: "pending", detail: null },
       render: { status: "pending", detail: null },
     },
     error: null,
@@ -124,8 +131,9 @@ function finishRun(status, error) {
 
 async function runPipeline() {
   const run = newRun();
+  let stageName = "script";
   try {
-    const { scenes } = await readScenes();
+    const { scenes, width, height } = await readScenes();
     run.stages.script.detail = `${scenes.length} scene(s)`;
 
     const sel = await readVoiceSelection();
@@ -135,6 +143,7 @@ async function runPipeline() {
       return finishRun("error", "no voice selected");
     }
 
+    stageName = "voiceover";
     run.stages.voiceover.status = "running";
     for (let i = 0; i < scenes.length; i++) {
       const s = scenes[i];
@@ -149,6 +158,22 @@ async function runPipeline() {
     run.stages.voiceover.status = "done";
     run.stages.voiceover.detail = `${scenes.length} clip(s) — ${sel.backend}/${sel.voice}`;
 
+    stageName = "avatar";
+    if (hasPresenterPhoto()) {
+      run.stages.avatar.status = "running";
+      for (let i = 0; i < scenes.length; i++) {
+        const s = scenes[i];
+        run.stages.avatar.detail = `${i + 1}/${scenes.length} — ${s.id}`;
+        await generateAvatarClip({ compositionId: COMPOSITION_ID, sceneId: s.id, width, height });
+      }
+      run.stages.avatar.status = "done";
+      run.stages.avatar.detail = `${scenes.length} clip(s)`;
+    } else {
+      run.stages.avatar.status = "done";
+      run.stages.avatar.detail = "skipped — no presenter photo uploaded";
+    }
+
+    stageName = "render";
     run.stages.render.status = "running";
     const outFile = path.join("out", `${COMPOSITION_ID}.mp4`);
     await new Promise((resolve, reject) => {
@@ -173,9 +198,8 @@ async function runPipeline() {
     run.outputUrl = `/output/${COMPOSITION_ID}.mp4`;
     finishRun("done");
   } catch (e) {
-    const stage = run.stages.voiceover.status === "running" ? "voiceover" : "render";
-    run.stages[stage].status = "error";
-    run.stages[stage].detail = e.message;
+    run.stages[stageName].status = "error";
+    run.stages[stageName].detail = e.message;
     finishRun("error", e.message);
   }
 }
@@ -293,6 +317,42 @@ const server = createServer(async (req, res) => {
         proc.stdin.end();
       });
       return json(res, 200, { ok: true, id: `${name}.wav` });
+    }
+
+    // ---- presenter photo: the one-time upload that turns on avatar video ----
+    if (p === "/api/presenter-photo" && req.method === "POST") {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const raw = Buffer.concat(chunks);
+      if (!raw.length) return json(res, 400, { error: "empty body" });
+      await mkdir(PRESENTER_DIR, { recursive: true });
+      await new Promise((resolve, reject) => {
+        // Normalize to a plain jpg, capped at 720px wide — face detection on
+        // a full-resolution photo (e.g. a 2400x2999 phone/DSLR shot) can OOM
+        // the wav2lip container; a closeup face needs nowhere near that.
+        const proc = spawn("ffmpeg", [
+          "-y", "-i", "pipe:0",
+          "-vf", "scale='min(720,iw)':-2",
+          PRESENTER_PHOTO,
+        ]);
+        let err = "";
+        proc.stderr.on("data", (d) => (err += d));
+        proc.on("error", reject);
+        proc.on("close", (code) =>
+          code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${err}`)),
+        );
+        proc.stdin.write(raw);
+        proc.stdin.end();
+      });
+      return json(res, 200, { ok: true });
+    }
+    if (p === "/api/presenter-photo" && req.method === "GET") {
+      return json(res, 200, { exists: hasPresenterPhoto() });
+    }
+    if (p === "/presenter/photo.jpg") {
+      if (!hasPresenterPhoto()) return json(res, 404, { error: "not found" });
+      res.writeHead(200, { "Content-Type": "image/jpeg" });
+      return res.end(await readFile(PRESENTER_PHOTO));
     }
 
     // ---- scene script: read + save ----
