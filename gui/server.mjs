@@ -267,6 +267,9 @@ const server = createServer(async (req, res) => {
         hasElevenKey,
         backends: ["elevenlabs", "piper", "espeak", "xtts"],
         defaultBackend,
+        // "wav2lip" (default, CPU) or "hallo" (GPU-only, see
+        // docker-compose.gpu.yml) — which engine the avatar pipeline stage uses.
+        avatarEngine: process.env.AVATAR_ENGINE || "wav2lip",
       });
     }
 

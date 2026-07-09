@@ -1,0 +1,45 @@
+# GPU overlay — apply on a CUDA-capable host with the nvidia-container-
+# toolkit installed:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Adds the Hallo avatar service (photorealistic, diffusion-based, GPU-only —
+# see docker/hallo/) and switches the pipeline to use it instead of the
+# default CPU-feasible wav2lip service. Not applied by default: the base
+# docker-compose.yml alone (no GPU required) still runs everything else,
+# including wav2lip-based avatars, unchanged.
+services:
+  aivideocreator:
+    environment:
+      AVATAR_ENGINE: hallo
+      HALLO_URL: http://hallo:8093
+    depends_on:
+      - hallo
+
+  # Diffusion-based talking-head avatar (fudan-generative-vision/hallo).
+  # Photorealistic head motion, not just mouth sync — but genuinely needs
+  # CUDA; some of its ops have no CPU fallback. Not built/tested against a
+  # live GPU in this repo's dev environment (that host has none) — build and
+  # smoke-test on your target GPU host.
+  hallo:
+    build: ./docker/hallo
+    image: aivideocreator-hallo:latest
+    container_name: aivideocreator-hallo
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      # Pretrained weights (~10GB+), downloaded on first run — persists
+      # across rebuilds, same reasoning as xtts_models.
+      - hallo_models:/app/hallo/pretrained_models
+      - presenter_photo:/presenter
+      - avatar:/avatar_out
+      - voiceover:/voiceover_audio:ro
+
+volumes:
+  hallo_models:
